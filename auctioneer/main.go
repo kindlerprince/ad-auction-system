@@ -31,20 +31,29 @@ type adRequest struct {
 }
 
 var (
-	bidderMap map[string]bool
-	bidMap    map[string]float32
-	bidList   []bidRequest
+	bidderMap    map[string]bool
+	bidMap       map[string]float32
+	bidList      []bidRequest
+	auctionGoing bool
+	counter      int
+)
+
+const (
+	AUCTIONEER_PORT = "8080"
+	BIDDER_URL      = "localhost"
+	BIDDER_PORT     = "8081"
 )
 
 func main() {
 	fmt.Println("Ad Auction System")
+	auctionGoing = false
 	r := mux.NewRouter()
 	r.HandleFunc("/adrequest", adRequestHandler).Methods(http.MethodPost)
 	r.HandleFunc("/registration", bidderRegistrationHandler).Methods(http.MethodPost)
 	r.HandleFunc("/bidderlist", bidderListHandler).Methods(http.MethodGet)
 	r.HandleFunc("/bidding", biddingHandler).Methods(http.MethodPost)
 	http.Handle("/", r)
-	err := http.ListenAndServe(":8080", nil)
+	err := http.ListenAndServe(":"+AUCTIONEER_PORT, nil)
 	if err != nil {
 		fmt.Printf("Error in starting server : %s", err.Error())
 	}
@@ -70,10 +79,13 @@ func adRequestHandler(w http.ResponseWriter, r *http.Request) {
 			writeSuccessMessage(w, r, response)
 			return
 		}
-		bidPlacing(ad.AuctionID)
-		fmt.Printf("%+v\n", ad)
+		auctionGoing = true
+		bidPlacing(BIDDER_URL, BIDDER_PORT, ad.AuctionID)
 		time.Sleep(20 * time.Second)
 		resBid := bidResult()
+		counter++
+		fmt.Printf("Winner for %d round : %+v\n", counter, resBid)
+		auctionGoing = false
 		response = customResponse{
 			Message: "Bid Result",
 			Data:    resBid,
@@ -82,9 +94,8 @@ func adRequestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func bidPlacing(auctionID string) {
-	url := "localhost"
-	port := "8081"
+func bidPlacing(url, port, auctionID string) {
+
 	var ad adRequest
 	for bidderID := range bidderMap {
 		ad.AuctionID = auctionID
@@ -94,13 +105,13 @@ func bidPlacing(auctionID string) {
 			fmt.Printf("Sending request failed to bidder[bidder id : %s ] %s", bidderID, err.Error())
 			continue
 		}
-		continue
+		fmt.Printf("Placing bid for bidder %s\n", bidderID)
 		body, err := ioutil.ReadAll(resp.Body)
 		defer resp.Body.Close()
 		if err != nil {
 			fmt.Printf("Error in reading body : %s", err.Error())
 		}
-		fmt.Printf("%s", string(body))
+		fmt.Printf("Response of placing bidder %s\n", string(body))
 		if resp.StatusCode == http.StatusOK {
 			return
 		}
@@ -182,10 +193,13 @@ func bidderRegistrationHandler(w http.ResponseWriter, r *http.Request) {
 			writeSuccessMessage(w, r, response)
 			return
 		}
-		bidderRegistration(bidderReg)
-		response = customResponse{
-			Message: "Receiving bidder registration",
-			Data:    fmt.Sprintf("Bidding your ad auction id %s", bidderReg.BidderID),
+		fmt.Printf("%+v\n", bidderReg)
+		if auctionGoing == true {
+			response.Message = "Registration Failed OnGoing Auction"
+		} else {
+			bidderRegistration(bidderReg)
+			response.Message = "Registration Successful"
+			fmt.Printf("Registration Success for bidder %s\n", bidderReg.BidderID)
 		}
 		writeSuccessMessage(w, r, response)
 	}
@@ -194,9 +208,7 @@ func bidderRegistration(bidderEntity bidder) error {
 	if bidderMap == nil {
 		bidderMap = make(map[string]bool)
 	}
-	if _, ok := bidderMap[bidderEntity.BidderID]; !ok {
-		bidderMap[bidderEntity.BidderID] = true
-	}
+	bidderMap[bidderEntity.BidderID] = true
 	return nil
 }
 

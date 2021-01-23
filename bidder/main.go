@@ -13,7 +13,10 @@ import (
 )
 
 const (
-	VALUE = 154.36
+	VALUE           = 154.36
+	BIDDER_PORT     = "8081"
+	AUCTIONEER_URL  = "localhost"
+	AUCTIONEER_PORT = "8080"
 )
 
 var BIDDERID string
@@ -38,22 +41,24 @@ type bidRequest struct {
 }
 
 func main() {
-	uid, err := uuid.NewRandom()
-	if err != nil {
-		fmt.Printf("Error in creating bidder id")
-		return
-	}
-	BIDDERID = uid.String()
-	err = registration("localhost", "8080", 3)
-	if err != nil {
-		fmt.Printf("Registration Failed : %s", err.Error())
-		return
-	}
 	fmt.Println("Bidder System")
+	var err error
+	BIDDERID, err = getBidderId()
+	fmt.Printf("BIDDERID = %s\n", BIDDERID)
+	if err != nil {
+		fmt.Printf("No bidder id assigned : %s\n", err.Error())
+		return
+	}
+	err = registration(AUCTIONEER_URL, AUCTIONEER_PORT, 3)
+	if err != nil {
+		fmt.Printf("Registration Failed : %s\n", err.Error())
+		return
+	}
+	fmt.Println("Registration Successful")
 	r := mux.NewRouter()
 	r.HandleFunc("/auction/"+BIDDERID, auctionAdHandler).Methods(http.MethodPost)
 	http.Handle("/", r)
-	err = http.ListenAndServe(":8081", nil)
+	err = http.ListenAndServe(":"+BIDDER_PORT, nil)
 	if err != nil {
 		fmt.Printf("Error in starting server : %s", err.Error())
 	}
@@ -85,18 +90,17 @@ func auctionAdHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		writeSuccessMessage(w, r, response)
 		time.Sleep(5 * time.Second)
-		fmt.Printf("%s\n%s\n%s\n", r.Host, r.URL.Port(), r.URL.Path)
-		askForBid(r.Host + r.URL.Port() + r.URL.Path)
+		askForBid()
 	}
 }
 
-func askForBid(url string) error {
+func askForBid() error {
 	bid := bidRequest{
 		BidderID: BIDDERID,
 		Value:    VALUE,
 	}
 	payload, _ := json.Marshal(bid)
-	resp, err := http.Post("http://"+url+"/bidding", "application/json", bytes.NewBuffer(payload))
+	resp, err := http.Post("http://"+AUCTIONEER_URL+":"+AUCTIONEER_PORT+"/bidding", "application/json", bytes.NewBuffer(payload))
 	if err != nil {
 		fmt.Printf("Sending request failed to auctioneer %s", err.Error())
 		return err
@@ -118,6 +122,7 @@ func registration(url, port string, time_ms int) error {
 	id := identity{
 		BidderID: BIDDERID,
 	}
+	fmt.Printf("%+v", id)
 	payload, _ := json.Marshal(id)
 	resp, err := http.Post("http://"+url+":"+port+"/registration", "application/json", bytes.NewBuffer(payload))
 	if err != nil {
@@ -154,4 +159,13 @@ func writeSuccessMessage(w http.ResponseWriter, r *http.Request, data interface{
 
 func setupResponse(w *http.ResponseWriter, req *http.Request) {
 	(*w).Header().Set("content-type", "application/json")
+}
+
+func getBidderId() (string, error) {
+	uid, err := uuid.NewRandom()
+	if err != nil {
+		fmt.Printf("Error in creating bidder id : %s", err.Error())
+		return "", err
+	}
+	return uid.String(), nil
 }
