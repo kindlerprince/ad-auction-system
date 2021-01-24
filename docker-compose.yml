@@ -11,7 +11,7 @@ services:
   bidder1:
     environment:
       - ID=bidder1
-      - DELAY=12
+      - DELAY=40
       - VALUE=8323
       - PORT=8728
       - AUCTIONEER_URL=auctioneer
@@ -26,7 +26,7 @@ services:
   bidder2:
     environment:
       - ID=bidder2
-      - DELAY=8
+      - DELAY=89
       - VALUE=83
       - PORT=8729
       - AUCTIONEER_URL=auctioneer

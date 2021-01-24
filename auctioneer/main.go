@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -30,9 +31,13 @@ type bidderDetails struct {
 	URL  string
 }
 
+type safeDB struct {
+	mu     sync.RWMutex
+	bidMap map[string]float64
+}
 type bidRequest struct {
 	BidderID string  `json:"bidder_id,omitempty"`
-	Value    float32 `json:"value,omitempty"`
+	Value    float64 `json:"value,omitempty"`
 }
 
 type adRequest struct {
@@ -41,9 +46,7 @@ type adRequest struct {
 
 var (
 	bidderMap       map[string]bidderDetails
-	bidMap          map[string]float32
 	bidList         []bidRequest
-	auctionGoing    bool
 	counter         int
 	AUCTIONEER_PORT string
 )
@@ -57,13 +60,10 @@ func main() {
 	}
 	AUCTIONEER_PORT = strconv.Itoa(port)
 	fmt.Printf("AUCTIONEER PORT  %s\n", AUCTIONEER_PORT)
-	auctionGoing = false
 	r := mux.NewRouter()
 	r.HandleFunc("/adrequest", adRequestHandler).Methods(http.MethodPost)
 	r.HandleFunc("/registration", bidderRegistrationHandler).Methods(http.MethodPost)
 	r.HandleFunc("/bidderlist", bidderListHandler).Methods(http.MethodGet)
-	//This should be removed should be taken from response after sending bid request
-	r.HandleFunc("/bidding", biddingHandler).Methods(http.MethodPost)
 	http.Handle("/", r)
 	err = http.ListenAndServe(":"+AUCTIONEER_PORT, nil)
 	if err != nil {
@@ -91,13 +91,10 @@ func adRequestHandler(w http.ResponseWriter, r *http.Request) {
 			writeSuccessMessage(w, r, response)
 			return
 		}
-		auctionGoing = true
-		bidRequestToBidders(ad.AuctionID)
-		time.Sleep(20 * time.Second)
-		resBid := bidResult()
+		successBidderList := bidRequestToBidders(ad.AuctionID)
+		resBid := bidResult(successBidderList)
 		counter++
 		fmt.Printf("Winner for %d round : %+v\n", counter, resBid)
-		auctionGoing = false
 		response = customResponse{
 			Message: "Bid Result",
 			Data:    resBid,
@@ -106,31 +103,81 @@ func adRequestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func bidRequestToBidders(auctionID string) {
+func createDB() *safeDB {
+	db := &safeDB{
+		bidMap: make(map[string]float64),
+	}
+	return db
+}
+
+func (db *safeDB) get(key string) (float64, bool) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	value, ok := db.bidMap[key]
+	return value, ok
+}
+
+func (db *safeDB) set(key string, value float64) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	db.bidMap[key] = value
+}
+
+func worker(bidderDet bidder, payload []byte, db *safeDB, wg *sync.WaitGroup) {
+	defer wg.Done()
+	client := http.Client{
+		Timeout: 200 * time.Millisecond,
+	}
+	request, err := http.NewRequest("POST", "http://"+bidderDet.BidderURL+":"+bidderDet.BidderPort+"/auction/"+bidderDet.BidderID, bytes.NewBuffer(payload))
+	if err != nil {
+		fmt.Printf("Error in creating bid request [bidder id : %s ] %s\n", bidderDet.BidderID, err.Error())
+		return
+	}
+	request.Header.Set("Content-type", "application/json")
+	resp, err := client.Do(request)
+	if err != nil {
+		fmt.Printf("Sending request failed to bidder[bidder id : %s ] %s\n", bidderDet.BidderID, err.Error())
+		return
+	}
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("Unable to place pid :%d\n", resp.StatusCode)
+		return
+	}
+	fmt.Printf("Bidder[%s] Received bid request successfully\n", bidderDet.BidderID)
+	defer resp.Body.Close()
+	if resp != nil && resp.Body != nil {
+		bidResponse, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			fmt.Printf("Error in reading body : %s\n", err.Error())
+			return
+		}
+		var bid bidRequest
+		err = json.Unmarshal(bidResponse, &bid)
+		if err != nil {
+			fmt.Printf("Error in unmarshalling body : %s\n", err.Error())
+			return
+		}
+		checkBidding(bid, db)
+	} else {
+		fmt.Println("Bid Response is nil")
+	}
+
+}
+
+func bidRequestToBidders(auctionID string) map[string]float64 {
 	var ad adRequest
+	var wg sync.WaitGroup
 	currentUsers := fetchRegisteredUser()
+	db := createDB()
 	for _, bidderDet := range currentUsers {
 		ad.AuctionID = auctionID
 		payload, _ := json.Marshal(ad)
-
-		// sending bid request to bidder
-		// include request timeout for 200 ms
-		resp, err := http.Post("http://"+bidderDet.BidderURL+":"+bidderDet.BidderPort+"/auction/"+bidderDet.BidderID, "application/json", bytes.NewBuffer(payload))
-		if err != nil {
-			fmt.Printf("Sending request failed to bidder[bidder id : %s ] %s", bidderDet.BidderID, err.Error())
-			continue
-		}
-		fmt.Printf("Placing bid for bidder %s\n", bidderDet.BidderID)
-		body, err := ioutil.ReadAll(resp.Body)
-		defer resp.Body.Close()
-		if err != nil {
-			fmt.Printf("Error in reading body : %s", err.Error())
-		}
-		fmt.Printf("Response of placing bidder %s\n", string(body))
-		if resp.StatusCode != http.StatusOK {
-			fmt.Printf("Unable to place pid :%d\n", resp.StatusCode)
-		}
+		wg.Add(1)
+		go worker(bidderDet, payload, db, &wg)
 	}
+	wg.Wait()
+	//time.Sleep(200 * time.Millisecond)
+	return db.bidMap
 }
 func fetchRegisteredUser() []bidder {
 	var currBidder []bidder
@@ -144,58 +191,19 @@ func fetchRegisteredUser() []bidder {
 	return currBidder
 }
 
-func bidResult() bidRequest {
+func bidResult(bidderList map[string]float64) bidRequest {
 	var finalBid bidRequest
-	for _, bid := range bidList {
-		if bid.Value > finalBid.Value {
-			finalBid.BidderID = bid.BidderID
-			finalBid.Value = bid.Value
+	for bidderID, bidValue := range bidderList {
+		if bidValue > finalBid.Value {
+			finalBid.BidderID = bidderID
+			finalBid.Value = bidValue
 		}
 	}
 	return finalBid
 }
 
-func biddingHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost {
-		var response customResponse
-		setupResponse(&w, r)
-		biddingBody, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			fmt.Printf("Error in reading body : %s", err.Error())
-			response.Message = "Error in reading data"
-			writeSuccessMessage(w, r, response)
-			return
-		}
-		defer r.Body.Close()
-		var bid bidRequest
-		err = json.Unmarshal(biddingBody, &bid)
-		if err != nil {
-			fmt.Printf("Error in unmarshalling body : %s", err.Error())
-			response.Message = "Error in parsing JSON"
-			writeSuccessMessage(w, r, response)
-			return
-		}
-		fmt.Printf("%+v\n", bid)
-		err = checkBidding(bid)
-		if err != nil {
-			response = customResponse{
-				Message: err.Error(),
-			}
-		} else {
-			response = customResponse{
-				Message: "Bid Request Placed",
-			}
-		}
-		writeSuccessMessage(w, r, response)
-	}
-}
-
-func checkBidding(bid bidRequest) error {
-	if _, ok := bidderMap[bid.BidderID]; !ok {
-		return fmt.Errorf("Bidder with id %s is not registered", bid.BidderID)
-	}
-	bidList = append(bidList, bid)
-	return nil
+func checkBidding(bid bidRequest, db *safeDB) {
+	db.set(bid.BidderID, bid.Value)
 }
 
 func bidderRegistrationHandler(w http.ResponseWriter, r *http.Request) {
@@ -218,14 +226,9 @@ func bidderRegistrationHandler(w http.ResponseWriter, r *http.Request) {
 			writeSuccessMessage(w, r, response)
 			return
 		}
-		fmt.Printf("%+v\n", bidderReg)
-		if auctionGoing == true {
-			response.Message = "Registration Failed OnGoing Auction"
-		} else {
-			bidderRegistration(bidderReg)
-			response.Message = "Registration Successful"
-			fmt.Printf("Registration Success for bidder %s\n", bidderReg.BidderID)
-		}
+		bidderRegistration(bidderReg)
+		response.Message = "Registration Successful"
+		fmt.Printf("Registration Success for bidder %s\n", bidderReg.BidderID)
 		writeSuccessMessage(w, r, response)
 	}
 }

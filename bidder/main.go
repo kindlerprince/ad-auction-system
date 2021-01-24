@@ -87,7 +87,7 @@ func main() {
 	}
 	fmt.Println("Registration Successful")
 	r := mux.NewRouter()
-	r.HandleFunc("/auction/"+BIDDERID, auctionAdHandler).Methods(http.MethodPost)
+	r.HandleFunc("/auction/"+BIDDERID, bidRequestHandler).Methods(http.MethodPost)
 	http.Handle("/", r)
 	err = http.ListenAndServe(":"+BIDDER_PORT, nil)
 	if err != nil {
@@ -95,7 +95,7 @@ func main() {
 	}
 }
 
-func auctionAdHandler(w http.ResponseWriter, r *http.Request) {
+func bidRequestHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		var response customResponse
 		setupResponse(&w, r)
@@ -103,7 +103,7 @@ func auctionAdHandler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			fmt.Printf("Error in reading body : %s", err.Error())
 			response.Message = "Error in reading data"
-			writeSuccessMessage(w, r, response)
+			writeErrorMessage(w, r, http.StatusBadRequest, response)
 			return
 		}
 		defer r.Body.Close()
@@ -112,41 +112,16 @@ func auctionAdHandler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			fmt.Printf("Error in unmarshalling body : %s", err.Error())
 			response.Message = "Error in parsing JSON"
-			writeSuccessMessage(w, r, response)
+			writeErrorMessage(w, r, http.StatusBadRequest, response)
 			return
 		}
-		fmt.Printf("%+v\n", ad)
-		response = customResponse{
-			Message: "Place the Bid request",
+		bidResponse := bidRequest{
+			BidderID: BIDDERID,
+			Value:    VALUE,
 		}
-		writeSuccessMessage(w, r, response)
-		time.Sleep(time.Duration(TIME_DELAY) * time.Second)
-		askForBid()
-	}
-}
-
-func askForBid() {
-	bid := bidRequest{
-		BidderID: BIDDERID,
-		Value:    VALUE,
-	}
-	payload, _ := json.Marshal(bid)
-	resp, err := http.Post("http://"+AUCTIONEER_URL+":"+AUCTIONEER_PORT+"/bidding", "application/json", bytes.NewBuffer(payload))
-	if err != nil {
-		fmt.Printf("Sending request failed to auctioneer %s", err.Error())
-		return
-	}
-	body, err := ioutil.ReadAll(resp.Body)
-	defer resp.Body.Close()
-	if err != nil {
-		fmt.Printf("Error in reading body : %s", err.Error())
-		return
-	}
-	fmt.Printf("%s", string(body))
-	if resp.StatusCode == http.StatusOK {
-		fmt.Printf("Bid response sent is successfully")
-	} else {
-		fmt.Println("Bid response was not sent")
+		time.Sleep(time.Duration(TIME_DELAY) * time.Millisecond)
+		fmt.Printf("Sending bid response\n")
+		writeSuccessMessage(w, r, bidResponse)
 	}
 }
 
@@ -162,32 +137,16 @@ func registration(auctioneerURL, auctioneerPort string) error {
 		fmt.Printf("Sending request to auctioneer failed %s\n", err.Error())
 		return err
 	}
-	body, err := ioutil.ReadAll(resp.Body)
+	_, err = ioutil.ReadAll(resp.Body)
 	defer resp.Body.Close()
 	if err != nil {
 		fmt.Printf("Error in reading body : %s\n", err.Error())
 		return err
 	}
-	fmt.Printf("%s", string(body))
 	if resp.StatusCode == http.StatusOK {
 		return nil
 	}
 	return fmt.Errorf("Unable to register :%d", resp.StatusCode)
-}
-
-func writeSuccessMessage(w http.ResponseWriter, r *http.Request, data interface{}) {
-	fmt.Printf(
-		"%s %s \n",
-		r.Method,
-		r.RequestURI,
-	)
-	w.WriteHeader(http.StatusOK)
-	body, err := json.Marshal(data)
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	w.Write(body)
 }
 
 func setupResponse(w *http.ResponseWriter, req *http.Request) {
@@ -250,4 +209,33 @@ func getBidderURL() (string, error) {
 		return url, fmt.Errorf("Environment variale HOSTNAME is not defined")
 	}
 	return url, nil
+}
+func writeErrorMessage(w http.ResponseWriter, r *http.Request, code int, errresp interface{}) {
+	fmt.Printf(
+		"%s %s %v",
+		r.Method,
+		r.RequestURI,
+		errresp,
+	)
+	w.WriteHeader(code)
+	body, err := json.Marshal(errresp)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	w.Write(body)
+}
+func writeSuccessMessage(w http.ResponseWriter, r *http.Request, data interface{}) {
+	fmt.Printf(
+		"%s %s \n",
+		r.Method,
+		r.RequestURI,
+	)
+	w.WriteHeader(http.StatusOK)
+	body, err := json.Marshal(data)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	w.Write(body)
 }
