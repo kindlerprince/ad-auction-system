@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -18,7 +20,12 @@ type customResponse struct {
 }
 
 type bidder struct {
-	BidderID string `json:"bidder_id,omitempty"`
+	BidderID   string `json:"bidder_id,omitempty"`
+	BidderPort string `json:"bidder_port,omitempty"`
+}
+
+type bidderDetails struct {
+	Port string
 }
 
 type bidRequest struct {
@@ -31,21 +38,27 @@ type adRequest struct {
 }
 
 var (
-	bidderMap    map[string]bool
-	bidMap       map[string]float32
-	bidList      []bidRequest
-	auctionGoing bool
-	counter      int
+	bidderMap       map[string]bidderDetails
+	bidMap          map[string]float32
+	bidList         []bidRequest
+	auctionGoing    bool
+	counter         int
+	AUCTIONEER_PORT string
 )
 
 const (
-	AUCTIONEER_PORT = "8080"
-	BIDDER_URL      = "localhost"
-	BIDDER_PORT     = "8081"
+	BIDDER_URL = "localhost"
 )
 
 func main() {
 	fmt.Println("Ad Auction System")
+	port, err := getPort()
+	if err != nil {
+		fmt.Printf("%s\n", err.Error())
+		return
+	}
+	AUCTIONEER_PORT = strconv.Itoa(port)
+	fmt.Printf("AUCTIONEER PORT  %s\n", AUCTIONEER_PORT)
 	auctionGoing = false
 	r := mux.NewRouter()
 	r.HandleFunc("/adrequest", adRequestHandler).Methods(http.MethodPost)
@@ -53,7 +66,7 @@ func main() {
 	r.HandleFunc("/bidderlist", bidderListHandler).Methods(http.MethodGet)
 	r.HandleFunc("/bidding", biddingHandler).Methods(http.MethodPost)
 	http.Handle("/", r)
-	err := http.ListenAndServe(":"+AUCTIONEER_PORT, nil)
+	err = http.ListenAndServe(":"+AUCTIONEER_PORT, nil)
 	if err != nil {
 		fmt.Printf("Error in starting server : %s", err.Error())
 	}
@@ -80,7 +93,7 @@ func adRequestHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		auctionGoing = true
-		bidPlacing(BIDDER_URL, BIDDER_PORT, ad.AuctionID)
+		bidPlacing(ad.AuctionID)
 		time.Sleep(20 * time.Second)
 		resBid := bidResult()
 		counter++
@@ -94,13 +107,13 @@ func adRequestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func bidPlacing(url, port, auctionID string) {
+func bidPlacing(auctionID string) {
 
 	var ad adRequest
-	for bidderID := range bidderMap {
+	for bidderID, bidderDet := range bidderMap {
 		ad.AuctionID = auctionID
 		payload, _ := json.Marshal(ad)
-		resp, err := http.Post("http://"+url+":"+port+"/auction/"+bidderID, "application/json", bytes.NewBuffer(payload))
+		resp, err := http.Post("http://"+BIDDER_URL+":"+bidderDet.Port+"/auction/"+bidderID, "application/json", bytes.NewBuffer(payload))
 		if err != nil {
 			fmt.Printf("Sending request failed to bidder[bidder id : %s ] %s", bidderID, err.Error())
 			continue
@@ -112,10 +125,9 @@ func bidPlacing(url, port, auctionID string) {
 			fmt.Printf("Error in reading body : %s", err.Error())
 		}
 		fmt.Printf("Response of placing bidder %s\n", string(body))
-		if resp.StatusCode == http.StatusOK {
-			return
+		if resp.StatusCode != http.StatusOK {
+			fmt.Printf("Unable to place pid :%d\n", resp.StatusCode)
 		}
-		//return fmt.Errorf("Unable to register :%d", resp.StatusCode)
 	}
 }
 
@@ -204,18 +216,19 @@ func bidderRegistrationHandler(w http.ResponseWriter, r *http.Request) {
 		writeSuccessMessage(w, r, response)
 	}
 }
-func bidderRegistration(bidderEntity bidder) error {
+func bidderRegistration(bidderEntity bidder) {
 	if bidderMap == nil {
-		bidderMap = make(map[string]bool)
+		bidderMap = make(map[string]bidderDetails)
 	}
-	bidderMap[bidderEntity.BidderID] = true
-	return nil
+	bidderMap[bidderEntity.BidderID] = bidderDetails{
+		Port: bidderEntity.BidderPort,
+	}
 }
 
 func bidderListHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		var bidderList []string
-		for bidderEntity := range bidderMap {
+		for bidderEntity, _ := range bidderMap {
 			bidderList = append(bidderList, bidderEntity)
 		}
 		response := customResponse{
@@ -242,4 +255,8 @@ func writeSuccessMessage(w http.ResponseWriter, r *http.Request, data interface{
 		return
 	}
 	w.Write(body)
+}
+func getPort() (int, error) {
+	port := os.Getenv("AUCTIONEER_PORT")
+	return strconv.Atoi(port)
 }

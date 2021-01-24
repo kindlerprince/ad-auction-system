@@ -6,20 +6,24 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 )
 
 const (
-	VALUE           = 154.36
-	BIDDER_PORT     = "8081"
-	AUCTIONEER_URL  = "localhost"
-	AUCTIONEER_PORT = "8080"
+	AUCTIONEER_URL = "localhost"
 )
 
-var BIDDERID string
+var (
+	BIDDERID        string
+	VALUE           float64
+	BIDDER_PORT     string
+	TIME_DELAY      int
+	AUCTIONEER_PORT string
+)
 
 type customResponse struct {
 	Status  string      `json:"status,omitempty"`
@@ -32,24 +36,43 @@ type auctionAD struct {
 }
 
 type identity struct {
-	BidderID string `json:"bidder_id,omitempty"`
+	BidderID   string `json:"bidder_id,omitempty"`
+	BidderPort string `json:"bidder_port,omitempty"`
 }
 
 type bidRequest struct {
 	BidderID string  `json:"bidder_id,omitempty"`
-	Value    float32 `json:"value,omitempty"`
+	Value    float64 `json:"value,omitempty"`
 }
 
 func main() {
-	fmt.Println("Bidder System")
+	fmt.Println("-----Bidder System------")
 	var err error
-	BIDDERID, err = getBidderId()
-	fmt.Printf("BIDDERID = %s\n", BIDDERID)
+	//rand.Seed(time.Now().UnixNano())
+	BIDDERID, err = getBidderID()
 	if err != nil {
-		fmt.Printf("No bidder id assigned : %s\n", err.Error())
+		fmt.Printf("%s\n", err.Error())
 		return
 	}
-	err = registration(AUCTIONEER_URL, AUCTIONEER_PORT, 3)
+	port, err := getBidderPort()
+	if err != nil {
+		fmt.Printf("%s\n", err.Error())
+		return
+	}
+	BIDDER_PORT = strconv.Itoa(port)
+	VALUE, err = getBidValue()
+	if err != nil {
+		fmt.Printf("%s\n", err.Error())
+		return
+	}
+	port, err = getAuctioneerPort()
+	if err != nil {
+		fmt.Printf("%s\n", err.Error())
+		return
+	}
+	AUCTIONEER_PORT = strconv.Itoa(port)
+	TIME_DELAY, err = getTimeDelay()
+	err = registration(AUCTIONEER_URL, AUCTIONEER_PORT)
 	if err != nil {
 		fmt.Printf("Registration Failed : %s\n", err.Error())
 		return
@@ -86,7 +109,7 @@ func auctionAdHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Printf("%+v\n", ad)
 		response = customResponse{
-			Message: "Bid Request Placed",
+			Message: "Place the Bid request",
 		}
 		writeSuccessMessage(w, r, response)
 		time.Sleep(5 * time.Second)
@@ -118,13 +141,14 @@ func askForBid() error {
 	return nil
 }
 
-func registration(url, port string, time_ms int) error {
+func registration(auctioneerURL, auctioneerPort string) error {
 	id := identity{
-		BidderID: BIDDERID,
+		BidderID:   BIDDERID,
+		BidderPort: BIDDER_PORT,
 	}
 	fmt.Printf("%+v", id)
 	payload, _ := json.Marshal(id)
-	resp, err := http.Post("http://"+url+":"+port+"/registration", "application/json", bytes.NewBuffer(payload))
+	resp, err := http.Post("http://"+auctioneerURL+":"+auctioneerPort+"/registration", "application/json", bytes.NewBuffer(payload))
 	if err != nil {
 		fmt.Printf("Sending request failed to auctioneer %s", err.Error())
 		return err
@@ -161,11 +185,40 @@ func setupResponse(w *http.ResponseWriter, req *http.Request) {
 	(*w).Header().Set("content-type", "application/json")
 }
 
-func getBidderId() (string, error) {
-	uid, err := uuid.NewRandom()
+func getBidderID() (string, error) {
+	/*uid, err := uuid.NewRandom()
 	if err != nil {
 		fmt.Printf("Error in creating bidder id : %s", err.Error())
 		return "", err
 	}
 	return uid.String(), nil
+	*/
+	id := os.Getenv("ID")
+	if id == "" {
+		return id, fmt.Errorf("ENV Variable ID is not define")
+	}
+	return id, nil
+}
+func getBidderPort() (int, error) {
+	port := os.Getenv("PORT")
+	return strconv.Atoi(port)
+}
+func getAuctioneerPort() (int, error) {
+	port := os.Getenv("AUCTIONEER_PORT")
+	return strconv.Atoi(port)
+}
+func getBidValue() (float64, error) {
+	value := os.Getenv("VALUE")
+	return strconv.ParseFloat(value, 64)
+}
+func getTimeDelay() (int, error) {
+	delay := os.Getenv("DELAY")
+	if delay == "" {
+		return -1, fmt.Errorf("Environment variable delay is not set ")
+	}
+	delayInt, err := strconv.Atoi(delay)
+	if err != nil {
+		return -1, fmt.Errorf("Valeu of DELAY variable in not int")
+	}
+	return delayInt, nil
 }
