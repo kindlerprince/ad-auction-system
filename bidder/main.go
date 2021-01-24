@@ -45,9 +45,8 @@ type bidRequest struct {
 }
 
 func main() {
-	fmt.Println("-----Bidder System------")
+	fmt.Println("|-----Bidder System------|")
 	var err error
-	//rand.Seed(time.Now().UnixNano())
 	BIDDERID, err = getBidderID()
 	if err != nil {
 		fmt.Printf("%s\n", err.Error())
@@ -121,12 +120,12 @@ func auctionAdHandler(w http.ResponseWriter, r *http.Request) {
 			Message: "Place the Bid request",
 		}
 		writeSuccessMessage(w, r, response)
-		time.Sleep(5 * time.Second)
+		time.Sleep(time.Duration(TIME_DELAY) * time.Second)
 		askForBid()
 	}
 }
 
-func askForBid() error {
+func askForBid() {
 	bid := bidRequest{
 		BidderID: BIDDERID,
 		Value:    VALUE,
@@ -135,19 +134,20 @@ func askForBid() error {
 	resp, err := http.Post("http://"+AUCTIONEER_URL+":"+AUCTIONEER_PORT+"/bidding", "application/json", bytes.NewBuffer(payload))
 	if err != nil {
 		fmt.Printf("Sending request failed to auctioneer %s", err.Error())
-		return err
+		return
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	defer resp.Body.Close()
 	if err != nil {
 		fmt.Printf("Error in reading body : %s", err.Error())
-		return err
+		return
 	}
 	fmt.Printf("%s", string(body))
 	if resp.StatusCode == http.StatusOK {
-		return nil
+		fmt.Printf("Bid response sent is successfully")
+	} else {
+		fmt.Println("Bid response was not sent")
 	}
-	return nil
 }
 
 func registration(auctioneerURL, auctioneerPort string) error {
@@ -156,18 +156,16 @@ func registration(auctioneerURL, auctioneerPort string) error {
 		BidderPort: BIDDER_PORT,
 		BidderURL:  BIDDER_URL,
 	}
-	fmt.Printf("%+v", id)
 	payload, _ := json.Marshal(id)
-	fmt.Printf("### http://" + auctioneerURL + ":" + auctioneerPort + "/registration ###")
 	resp, err := http.Post("http://"+auctioneerURL+":"+auctioneerPort+"/registration", "application/json", bytes.NewBuffer(payload))
 	if err != nil {
-		fmt.Printf("Sending request failed to auctioneer %s", err.Error())
+		fmt.Printf("Sending request to auctioneer failed %s\n", err.Error())
 		return err
 	}
 	body, err := ioutil.ReadAll(resp.Body)
 	defer resp.Body.Close()
 	if err != nil {
-		fmt.Printf("Error in reading body : %s", err.Error())
+		fmt.Printf("Error in reading body : %s\n", err.Error())
 		return err
 	}
 	fmt.Printf("%s", string(body))
@@ -217,7 +215,7 @@ func getBidderPort() (int, error) {
 func getAuctioneerPort() (int, error) {
 	port := os.Getenv("AUCTIONEER_PORT")
 	if port == "" {
-		return -1, fmt.Errorf("Environment AUCTIONEER_PORT DELAY is not set ")
+		return -1, fmt.Errorf("Environment DELAY is not set ")
 	}
 	return strconv.Atoi(port)
 }
@@ -247,9 +245,9 @@ func getAuctioneerURL() (string, error) {
 	return url, nil
 }
 func getBidderURL() (string, error) {
-	url := os.Getenv("BIDDER_URL")
+	url := os.Getenv("HOSTNAME")
 	if url == "" {
-		return url, fmt.Errorf("Environment variale BIDDER_URL is not defined")
+		return url, fmt.Errorf("Environment variale HOSTNAME is not defined")
 	}
 	return url, nil
 }

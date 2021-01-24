@@ -1,12 +1,22 @@
 version: "3.9"
 services:
   auctioneer:
+    environment:
+      - AUCTIONEER_PORT=8085
     build:
       context: .
       dockerfile: ./auctioneer/docker/Dockerfile
     ports:
     - "8085:8085"
-  bidder:
+  bidder1:
+    environment:
+      - ID=bidder1
+      - DELAY=12
+      - VALUE=8323
+      - PORT=8728
+      - BIDDER_URL=bidder
+      - AUCTIONEER_URL=auctioneer
+      - AUCTIONEER_PORT=8085
     build:
       context: .
       dockerfile: ./bidder/docker/Dockerfile
@@ -16,11 +26,13 @@ services:
     - "auctioneer"
   bidder2:
     environment:
-      - ID=kumarbidder
+      - ID=bidder2
       - DELAY=8
-      - VALUE=83288
+      - VALUE=83
       - PORT=8729
-      - BIDDER_URL=bidder2
+      - BIDDER_URL=bidder
+      - AUCTIONEER_URL=auctioneer
+      - AUCTIONEER_PORT=8085
     build:
       context: .
       dockerfile: ./bidder/docker/Dockerfile
