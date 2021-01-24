@@ -13,16 +13,14 @@ import (
 	"github.com/gorilla/mux"
 )
 
-const (
-	AUCTIONEER_URL = "localhost"
-)
-
 var (
 	BIDDERID        string
 	VALUE           float64
 	BIDDER_PORT     string
 	TIME_DELAY      int
 	AUCTIONEER_PORT string
+	AUCTIONEER_URL  string
+	BIDDER_URL      string
 )
 
 type customResponse struct {
@@ -38,6 +36,7 @@ type auctionAD struct {
 type identity struct {
 	BidderID   string `json:"bidder_id,omitempty"`
 	BidderPort string `json:"bidder_port,omitempty"`
+	BidderURL  string `json:"bidder_url,omitempty"`
 }
 
 type bidRequest struct {
@@ -60,12 +59,22 @@ func main() {
 		return
 	}
 	BIDDER_PORT = strconv.Itoa(port)
+	BIDDER_URL, err = getBidderURL()
+	if err != nil {
+		fmt.Printf("%s\n", err.Error())
+		return
+	}
 	VALUE, err = getBidValue()
 	if err != nil {
 		fmt.Printf("%s\n", err.Error())
 		return
 	}
 	port, err = getAuctioneerPort()
+	if err != nil {
+		fmt.Printf("%s\n", err.Error())
+		return
+	}
+	AUCTIONEER_URL, err = getAuctioneerURL()
 	if err != nil {
 		fmt.Printf("%s\n", err.Error())
 		return
@@ -145,9 +154,11 @@ func registration(auctioneerURL, auctioneerPort string) error {
 	id := identity{
 		BidderID:   BIDDERID,
 		BidderPort: BIDDER_PORT,
+		BidderURL:  BIDDER_URL,
 	}
 	fmt.Printf("%+v", id)
 	payload, _ := json.Marshal(id)
+	fmt.Printf("### http://" + auctioneerURL + ":" + auctioneerPort + "/registration ###")
 	resp, err := http.Post("http://"+auctioneerURL+":"+auctioneerPort+"/registration", "application/json", bytes.NewBuffer(payload))
 	if err != nil {
 		fmt.Printf("Sending request failed to auctioneer %s", err.Error())
@@ -205,20 +216,40 @@ func getBidderPort() (int, error) {
 }
 func getAuctioneerPort() (int, error) {
 	port := os.Getenv("AUCTIONEER_PORT")
+	if port == "" {
+		return -1, fmt.Errorf("Environment AUCTIONEER_PORT DELAY is not set ")
+	}
 	return strconv.Atoi(port)
 }
 func getBidValue() (float64, error) {
 	value := os.Getenv("VALUE")
+	if value == "" {
+		return -1, fmt.Errorf("Environment variable VALUE is not set ")
+	}
 	return strconv.ParseFloat(value, 64)
 }
 func getTimeDelay() (int, error) {
 	delay := os.Getenv("DELAY")
 	if delay == "" {
-		return -1, fmt.Errorf("Environment variable delay is not set ")
+		return -1, fmt.Errorf("Environment variable DELAY is not set ")
 	}
 	delayInt, err := strconv.Atoi(delay)
 	if err != nil {
 		return -1, fmt.Errorf("Valeu of DELAY variable in not int")
 	}
 	return delayInt, nil
+}
+func getAuctioneerURL() (string, error) {
+	url := os.Getenv("AUCTIONEER_URL")
+	if url == "" {
+		return url, fmt.Errorf("Environment variable AUCTIONEER_URL is not set ")
+	}
+	return url, nil
+}
+func getBidderURL() (string, error) {
+	url := os.Getenv("BIDDER_URL")
+	if url == "" {
+		return url, fmt.Errorf("Environment variale BIDDER_URL is not defined")
+	}
+	return url, nil
 }

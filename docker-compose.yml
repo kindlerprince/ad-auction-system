@@ -1,6 +1,6 @@
 version: "3.9"
 services:
-  web:
+  auctioneer:
     build:
       context: .
       dockerfile: ./auctioneer/docker/Dockerfile
@@ -12,3 +12,19 @@ services:
       dockerfile: ./bidder/docker/Dockerfile
     ports:
     - "8728:8728"
+    depends_on:
+    - "auctioneer"
+  bidder2:
+    environment:
+      - ID=kumarbidder
+      - DELAY=8
+      - VALUE=83288
+      - PORT=8729
+      - BIDDER_URL=bidder2
+    build:
+      context: .
+      dockerfile: ./bidder/docker/Dockerfile
+    ports:
+    - "8729:8729"
+    depends_on:
+    - "auctioneer"

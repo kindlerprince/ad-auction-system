@@ -1,7 +1,15 @@
-FROM ubuntu:18.04
+FROM golang
 
 WORKDIR /app
-COPY ./auctioneer ./
+COPY ./auctioneer .
+RUN go build
+ENV ID PRINCEBIDDER
+ENV DELAY=10
+ENV VALUE=2322
+ENV PORT=8728
+
 ENV AUCTIONEER_PORT=8085
-EXPOSE 8085
+ENV AUCTIONEER_URL=auctioneer
+
+EXPOSE 8728
 CMD ["./auctioneer"]

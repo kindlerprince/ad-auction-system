@@ -1,11 +1,17 @@
-FROM ubuntu:18.04
+FROM golang
 
 WORKDIR /app
-COPY ./bidder ./
+#COPY ./bidder ./
+COPY ./bidder .
+RUN go build
 ENV ID PRINCEBIDDER
+ENV DELAY=10
 ENV VALUE=2322
 ENV PORT=8728
+
 ENV AUCTIONEER_PORT=8085
-ENV DELAY=10
+ENV AUCTIONEER_URL=auctioneer
+ENV BIDDER_URL=bidder
+
 EXPOSE 8728
 CMD ["./bidder"]

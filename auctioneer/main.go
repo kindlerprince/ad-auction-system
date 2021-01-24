@@ -22,10 +22,12 @@ type customResponse struct {
 type bidder struct {
 	BidderID   string `json:"bidder_id,omitempty"`
 	BidderPort string `json:"bidder_port,omitempty"`
+	BidderURL  string `json:"bidder_url,omitempty"`
 }
 
 type bidderDetails struct {
 	Port string
+	URL  string
 }
 
 type bidRequest struct {
@@ -46,13 +48,9 @@ var (
 	AUCTIONEER_PORT string
 )
 
-const (
-	BIDDER_URL = "localhost"
-)
-
 func main() {
 	fmt.Println("Ad Auction System")
-	port, err := getPort()
+	port, err := getAuctioneerPort()
 	if err != nil {
 		fmt.Printf("%s\n", err.Error())
 		return
@@ -64,6 +62,7 @@ func main() {
 	r.HandleFunc("/adrequest", adRequestHandler).Methods(http.MethodPost)
 	r.HandleFunc("/registration", bidderRegistrationHandler).Methods(http.MethodPost)
 	r.HandleFunc("/bidderlist", bidderListHandler).Methods(http.MethodGet)
+	//This should be removed should be taken from response after sending bid request
 	r.HandleFunc("/bidding", biddingHandler).Methods(http.MethodPost)
 	http.Handle("/", r)
 	err = http.ListenAndServe(":"+AUCTIONEER_PORT, nil)
@@ -113,7 +112,10 @@ func bidPlacing(auctionID string) {
 	for bidderID, bidderDet := range bidderMap {
 		ad.AuctionID = auctionID
 		payload, _ := json.Marshal(ad)
-		resp, err := http.Post("http://"+BIDDER_URL+":"+bidderDet.Port+"/auction/"+bidderID, "application/json", bytes.NewBuffer(payload))
+
+		// sending bid request to bidder
+		// include request timeout for 200 ms
+		resp, err := http.Post("http://"+bidderDet.URL+":"+bidderDet.Port+"/auction/"+bidderID, "application/json", bytes.NewBuffer(payload))
 		if err != nil {
 			fmt.Printf("Sending request failed to bidder[bidder id : %s ] %s", bidderID, err.Error())
 			continue
@@ -222,6 +224,7 @@ func bidderRegistration(bidderEntity bidder) {
 	}
 	bidderMap[bidderEntity.BidderID] = bidderDetails{
 		Port: bidderEntity.BidderPort,
+		URL:  bidderEntity.BidderURL,
 	}
 }
 
@@ -256,7 +259,10 @@ func writeSuccessMessage(w http.ResponseWriter, r *http.Request, data interface{
 	}
 	w.Write(body)
 }
-func getPort() (int, error) {
+func getAuctioneerPort() (int, error) {
 	port := os.Getenv("AUCTIONEER_PORT")
+	if port == "" {
+		return -1, fmt.Errorf("Environment variale AUCTIONEER_PORT is not defined")
+	}
 	return strconv.Atoi(port)
 }
