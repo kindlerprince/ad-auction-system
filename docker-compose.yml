@@ -14,7 +14,6 @@ services:
       - DELAY=12
       - VALUE=8323
       - PORT=8728
-      - BIDDER_URL=bidder
       - AUCTIONEER_URL=auctioneer
       - AUCTIONEER_PORT=8085
     build:
@@ -30,7 +29,6 @@ services:
       - DELAY=8
       - VALUE=83
       - PORT=8729
-      - BIDDER_URL=bidder
       - AUCTIONEER_URL=auctioneer
       - AUCTIONEER_PORT=8085
     build:

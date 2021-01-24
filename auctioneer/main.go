@@ -92,7 +92,7 @@ func adRequestHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		auctionGoing = true
-		bidPlacing(ad.AuctionID)
+		bidRequestToBidders(ad.AuctionID)
 		time.Sleep(20 * time.Second)
 		resBid := bidResult()
 		counter++
@@ -106,21 +106,21 @@ func adRequestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func bidPlacing(auctionID string) {
-
+func bidRequestToBidders(auctionID string) {
 	var ad adRequest
-	for bidderID, bidderDet := range bidderMap {
+	currentUsers := fetchRegisteredUser()
+	for _, bidderDet := range currentUsers {
 		ad.AuctionID = auctionID
 		payload, _ := json.Marshal(ad)
 
 		// sending bid request to bidder
 		// include request timeout for 200 ms
-		resp, err := http.Post("http://"+bidderDet.URL+":"+bidderDet.Port+"/auction/"+bidderID, "application/json", bytes.NewBuffer(payload))
+		resp, err := http.Post("http://"+bidderDet.BidderURL+":"+bidderDet.BidderPort+"/auction/"+bidderDet.BidderID, "application/json", bytes.NewBuffer(payload))
 		if err != nil {
-			fmt.Printf("Sending request failed to bidder[bidder id : %s ] %s", bidderID, err.Error())
+			fmt.Printf("Sending request failed to bidder[bidder id : %s ] %s", bidderDet.BidderID, err.Error())
 			continue
 		}
-		fmt.Printf("Placing bid for bidder %s\n", bidderID)
+		fmt.Printf("Placing bid for bidder %s\n", bidderDet.BidderID)
 		body, err := ioutil.ReadAll(resp.Body)
 		defer resp.Body.Close()
 		if err != nil {
@@ -131,6 +131,17 @@ func bidPlacing(auctionID string) {
 			fmt.Printf("Unable to place pid :%d\n", resp.StatusCode)
 		}
 	}
+}
+func fetchRegisteredUser() []bidder {
+	var currBidder []bidder
+	for id, details := range bidderMap {
+		currBidder = append(currBidder, bidder{
+			BidderID:   id,
+			BidderURL:  details.URL,
+			BidderPort: details.Port,
+		})
+	}
+	return currBidder
 }
 
 func bidResult() bidRequest {
